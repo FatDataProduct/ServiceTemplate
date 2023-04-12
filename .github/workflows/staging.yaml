@@ -1,0 +1,66 @@
+name: Deploy service
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+
+env:
+  SERVICE_NAME: stage-backend-parsing
+  REGISTRY: cr.selcloud.ru/fatdataseo
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare commit ID
+        id: cid
+        uses: bhowell2/github-substring-action@v1
+        with:
+          value: ${{ github.sha }}
+          length_from_start: 8
+
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          registry: cr.selcloud.ru
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          file: .docker/Dockerfile
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.SERVICE_NAME }}:latest,${{ env.REGISTRY }}/${{ env.SERVICE_NAME }}:${{ steps.cid.outputs.substring }}
+
+      - name: Deploy to Docker Swarm
+        uses: appleboy/ssh-action@master
+        with:
+          host:     ${{ secrets.MANAGER_HOST }}
+          username: ${{ secrets.MANAGER_USER }}
+          password: ${{ secrets.MANAGER_PASSWORD }}
+          port:     22
+          timeout: 1m
+          script: |
+            docker login \
+              --username ${{ secrets.DOCKERHUB_USERNAME }} \
+              --password ${{ secrets.DOCKERHUB_TOKEN }} \
+              cr.selcloud.ru
+            
+            docker pull ${{ env.REGISTRY }}/${{ env.SERVICE_NAME }}:latest
+            
+            docker service update \
+              --with-registry-auth \
+              --force \
+              --detach=true \
+              ${{ env.SERVICE_NAME }}

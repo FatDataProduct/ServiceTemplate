@@ -10,6 +10,7 @@ try:
 except ModuleNotFoundError:
     print("[*] Running without `uvloop`")
     uvloop = ...
+
 from app.configuration import load_configuration
 from app.program import configure_application
 from app.services import configure_services
